@@ -396,6 +396,8 @@ static int decoderaw(rtksvr_t *svr, int index)
 /* decode download file ------------------------------------------------------*/
 static void decodefile(rtksvr_t *svr, int index)
 {
+// There is some problem in that function and I don't need it for my case
+#if 0
     nav_t nav={0};
     char file[1024];
     int nb;
@@ -452,6 +454,7 @@ static void decodefile(rtksvr_t *svr, int index)
         
         rtksvrunlock(svr);
     }
+#endif
 }
 /* carrier-phase bias (fcb) correction ---------------------------------------*/
 static void corr_phase_bias(obsd_t *obs, int n, const nav_t *nav)
