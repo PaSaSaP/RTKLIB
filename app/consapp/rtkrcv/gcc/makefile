@@ -6,8 +6,8 @@ SRC    = ../../../../src
 CTARGET= -DTRACE -DENAGLO -DENAQZS -DENACMP -DENAGAL -DENAIRN -DNFREQ=3 -DSVR_REUSEADDR
 #CTARGET= -DENAGLO -DENAQZS -DENACMP -DENAGAL -DENAIRN -DNFREQ=3 -DIERS_MODEL -DSVR_REUSEADDR
 
-CFLAGS = -Wall -O3 -ansi -pedantic -Wno-unused-but-set-variable -I$(SRC) -I.. -DTRACE $(CTARGET) -g
-LDLIBS  = -lm -lrt -lpthread
+CFLAGS = -Wall -O0 -ansi -pedantic -Wno-unused-but-set-variable -I$(SRC) -I.. -DTRACE $(CTARGET) -g
+LDLIBS  = -lm -lpthread
 #LDLIBS  = ../../../lib/iers/gcc/iers.a -lm -lrt -lpthread
 
 all        : rtkrcv
@@ -17,11 +17,17 @@ rtkrcv     : novatel.o ublox.o crescent.o skytraq.o javad.o nvs.o binex.o
 rtkrcv     : rt17.o ephemeris.o rinex.o ionex.o rtcm2.o rtcm3.o rtcm3e.o
 rtkrcv     : tides.o septentrio.o swiftnav.o
 
+VT_DISABLED ?= 0
 
 rtkrcv.o   : ../rtkrcv.c
 	$(CC) -c $(CFLAGS) ../rtkrcv.c
+ifeq ($(VT_DISABLED),1)
+vt.o       : ../vt-disabled.c
+	$(CC) -c $(CFLAGS) ../vt-disabled.c -o vt.o
+else
 vt.o       : ../vt.c
 	$(CC) -c $(CFLAGS) ../vt.c
+endif
 rtkcmn.o   : $(SRC)/rtkcmn.c
 	$(CC) -c $(CFLAGS) $(SRC)/rtkcmn.c
 rtksvr.o   : $(SRC)/rtksvr.c

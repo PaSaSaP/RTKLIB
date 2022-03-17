@@ -129,6 +129,7 @@ static const char *usage[]={
     "usage: rtkrcv [-s][-p port][-d dev][-o file][-w pwd][-r level][-t level][-sta sta]",
     "options",
     "  -s         start RTK server on program startup",
+    "  -c bool    enable/disable local console",
     "  -p port    port number for telnet console",
     "  -m port    port number for monitor stream",
     "  -d dev     terminal device for console",
@@ -306,7 +307,7 @@ static int confwrite(vt_t *vt, const char *file)
     
     strcpy(buff,file);
     if ((p=strstr(buff,"::"))) *p='\0'; /* omit options in path */
-    if (!vt->state||!(fp=fopen(buff,"r"))) return 1; /* no existing file */
+    if (!vt||!vt->state||!(fp=fopen(buff,"r"))) return 1; /* no existing file */
     fclose(fp);
     vt_printf(vt,"overwrite %-16s ? (y/n): ",buff);
     if (!vt_gets(vt,buff,sizeof(buff))||vt->brk) return 0;
@@ -1523,7 +1524,7 @@ static void accept_sock(int ssock, con_t **con)
 }
 /* rtkrcv main -----------------------------------------------------------------
 * sysnopsis
-*     rtkrcv [-s][-p port][-d dev][-o file][-r level][-t level][-sta sta]
+*     rtkrcv [-c][-s][-p port][-d dev][-o file][-r level][-t level][-sta sta]
 *
 * description
 *     A command line version of the real-time positioning AP by rtklib. To start
@@ -1539,6 +1540,7 @@ static void accept_sock(int ssock, con_t **con)
 *
 * option
 *     -s         start RTK server on program startup
+*     -c bool    enable/disable local console
 *     -p port    port number for telnet console
 *     -m port    port number for monitor stream
 *     -d dev     terminal device for console
@@ -1628,11 +1630,12 @@ static void accept_sock(int ssock, con_t **con)
 int main(int argc, char **argv)
 {
     con_t *con[MAXCON]={0};
-    int i,port=0,outstat=0,trace=0,sock=0;
+    int i,port=0,outstat=0,trace=0,sock=0,console=1;
     char *dev="",file[MAXSTR]="";
     
     for (i=1;i<argc;i++) {
         if      (!strcmp(argv[i],"-s")) start=1;
+        else if (!strcmp(argv[i],"-c")&&i+1<argc) console=atoi(argv[++i]);
         else if (!strcmp(argv[i],"-p")&&i+1<argc) port=atoi(argv[++i]);
         else if (!strcmp(argv[i],"-m")&&i+1<argc) moniport=atoi(argv[++i]);
         else if (!strcmp(argv[i],"-d")&&i+1<argc) dev=argv[++i];
@@ -1681,7 +1684,7 @@ int main(int argc, char **argv)
             return -1;
         }
     }
-    else {
+    else if (console) {
         /* open device for local console */
         if (!(con[0]=con_open(0,dev))) {
             fprintf(stderr,"console open error dev=%s\n",dev);
@@ -1691,6 +1694,13 @@ int main(int argc, char **argv)
             return -1;
         }
     }
+
+    if (!console && start) {
+        /* auto start if option set and console is disabled */
+        cmd_start(NULL,0,NULL);
+        start=0;
+    }
+
     signal(SIGINT, sigshut); /* keyboard interrupt */
     signal(SIGTERM,sigshut); /* external shutdown signal */
     signal(SIGUSR2,sigshut);
