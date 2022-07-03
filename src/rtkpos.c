@@ -487,6 +487,7 @@ static void udpos(rtk_t *rtk, double tt)
     }
     /* initialize position for first epoch */
     if (norm(rtk->x,3)<=0.0) {
+        trace(3,"rr=");tracemat(3,rtk->sol.rr,1,6,15,6);
         for (i=0;i<3;i++) initx(rtk,rtk->sol.rr[i],VAR_POS,i);
         if (rtk->opt.dynamics) {
             for (i=3;i<6;i++) initx(rtk,rtk->sol.rr[i],VAR_VEL,i);
@@ -531,7 +532,7 @@ static void udpos(rtk_t *rtk, double tt)
             F[i+(i+6)*nx]=SQR(tt)/2.0;
         }
     }
-    else trace(3,"pos var too high for accel term\n");
+    else trace(3,"pos var too high for accel term: %.4f\n", var);
     for (i=0;i<nx;i++) {
         x[i]=rtk->x[ix[i]];
         for (j=0;j<nx;j++) {
@@ -720,7 +721,7 @@ static void detslp_dop(rtk_t *rtk, const obsd_t *obs, const int *ix, int ns,
                        int rcv, const nav_t *nav)
 {
     int i,ii,f,sat,ndop=0;
-    double dph,dpt,lam,thres,mean_dop=0;
+    double dph,dpt,mean_dop=0;
     double dopdif[MAXSAT][NFREQ], tt[MAXSAT][NFREQ];
 
     trace(4,"detslp_dop: rcv=%d\n", rcv);
@@ -734,12 +735,12 @@ static void detslp_dop(rtk_t *rtk, const obsd_t *obs, const int *ix, int ns,
         for (f=0;f<rtk->opt.nf;f++) {
             dopdif[i][f]=0;tt[i][f]=0.00;
             if (obs[ii].L[f]==0.0||obs[ii].D[f]==0.0||rtk->ssat[sat-1].ph[rcv-1][f]==0.0) continue;
-            if ((tt[i][f]=fabs(timediff(obs[ii].time,rtk->ssat[sat-1].pt[rcv-1][f])))<DTTOL) continue;
+            if (fabs(tt[i][f]=timediff(obs[ii].time,rtk->ssat[sat-1].pt[rcv-1][f]))<DTTOL) continue;
 
             /* calc phase difference and doppler x time (cycle) */
-            dph=obs[ii].L[f]-rtk->ssat[sat-1].ph[rcv-1][f];
-            dpt=-obs[ii].D[f]*tt[i][f];
-            dopdif[i][f]=(dph-dpt)/tt[i][f];
+            dph=(obs[ii].L[f]-rtk->ssat[sat-1].ph[rcv-1][f])/tt[i][f];
+            dpt=-obs[ii].D[f];
+            dopdif[i][f]=dph-dpt;
 
             /* if not outlier, use this to calculate mean */
             if (fabs(dopdif[i][f])<3*rtk->opt.thresdop) {
@@ -771,7 +772,7 @@ static void udbias(rtk_t *rtk, double tt, const obsd_t *obs, const int *sat,
                    const int *iu, const int *ir, int ns, const nav_t *nav)
 {
     double cp,pr,cp1,cp2,pr1,pr2,*bias,offset,freqi,freq1,freq2,C1,C2;
-    int i,j,k,slip,rejc,reset,nf=NF(&rtk->opt),sysi,f2;
+    int i,j,k,slip,rejc,reset,nf=NF(&rtk->opt),f2;
     
     trace(3,"udbias  : tt=%.3f ns=%d\n",tt,ns);
 
@@ -869,7 +870,7 @@ static void udbias(rtk_t *rtk, double tt, const obsd_t *obs, const int *sat,
                 j++;
         	}
         }
-        /* correct phase-bias offset to enssure phase-code coherency */
+        /* correct phase-bias offset to ensure phase-code coherency */
         if (j>0) {
             for (i=1;i<=MAXSAT;i++) {
                 if (rtk->x[IB(i,k,&rtk->opt)]!=0.0) rtk->x[IB(i,k,&rtk->opt)]+=offset/j;
@@ -955,6 +956,8 @@ static void zdres_sat(int base, double r, const obsd_t *obs, const nav_t *nav,
             /* residuals = observable - estimated range */
             if (obs->L[i]!=0.0) y[i   ]=obs->L[i]*CLIGHT/freq[i]-r-dant[i];
             if (obs->P[i]!=0.0) y[i+nf]=obs->P[i]               -r-dant[i];
+            trace(4,"zdres_sat: %d: L=%.6f P=%.6f r=%.6f f=%.0f\n",obs->sat,obs->L[i],
+                obs->P[i],r,freq[i]);
         }
     }
 }
@@ -1025,13 +1028,14 @@ static int zdres(int base, const obsd_t *obs, int n, const double *rs,
                  dant);
         
         /* calc undifferenced phase/code residual for satellite */
+        trace(4,"sat=%d r=%.6f c*dts=%.6f zhd=%.6f map=%.6f\n",obs[i].sat,r,CLIGHT*dts[i*2],zhd,mapfh);
         zdres_sat(base,r,obs+i,nav,azel+i*2,dant,opt,y+i*nf*2,freq+i*nf);
     }
     trace(4,"rr_=%.3f %.3f %.3f\n",rr_[0],rr_[1],rr_[2]);
     trace(4,"pos=%.9f %.9f %.3f\n",pos[0]*R2D,pos[1]*R2D,pos[2]);
     for (i=0;i<n;i++) {
         if ((obs[i].L[0]==0&&obs[i].L[1]==0&&obs[i].L[2]==0)||base==0) continue;
-        trace(3,"sat=%2d %13.3f %13.3f %13.3f %13.10f %6.1f %5.1f\n",
+        trace(3,"sat=%2d rs=%13.3f %13.3f %13.3f dts=%13.10f az=%6.1f el=%5.1f\n",
               obs[i].sat,rs[i*6],rs[1+i*6],rs[2+i*6],dts[i*2],azel[i*2]*R2D,
               azel[1+i*2]*R2D);
     }
@@ -1058,7 +1062,7 @@ static void ddcov(const int *nb, int n, const double *Ri, const double *Rj,
 {
     int i,j,k=0,b;
     
-    trace(3,"ddcov   : n=%d\n",n);
+    trace(4,"ddcov   : n=%d\n",n);
     
     for (i=0;i<nv*nv;i++) R[i]=0.0;
     for (b=0;b<n;k+=nb[b++]) {  /* loop through each system */
@@ -1179,7 +1183,7 @@ static int ddres(rtk_t *rtk, const nav_t *nav, const obsd_t *obs, double dt, con
     int i,j,k,m,f,nv=0,nb[NFREQ*4*2+2]={0},b=0,sysi,sysj,nf=NF(opt);
     int ii,jj,frq,code;
     
-    trace(3,"ddres   : dt=%.1f nx=%d ns=%d\n",dt,rtk->nx,ns);
+    trace(3,"ddres   : dt=%.4f ns=%d\n",dt,ns);
     
     /* bl=distance from base to rover, dr=x,y,z components */
     bl=baseline(x,rtk->rb,dr);
@@ -1321,8 +1325,8 @@ static int ddres(rtk_t *rtk, const nav_t *nav, const obsd_t *obs, double dt, con
 
                 /* if residual too large, flag as outlier */
                 /* adjust threshold by error stdev ratio unless one of the phase biases was just initialized*/
-                threshadj=code||(rtk->P[ii+rtk->nx*ii]==SQR(rtk->opt.std[0]))||
-                        (rtk->P[jj+rtk->nx*jj]==SQR(rtk->opt.std[0]))?opt->eratio[frq]:1;
+                threshadj=code||(P[ii+rtk->nx*ii]==SQR(rtk->opt.std[0]))||
+                        (P[jj+rtk->nx*jj]==SQR(rtk->opt.std[0]))?opt->eratio[frq]:1;
                 if (opt->maxinno>0.0&&fabs(v[nv])>opt->maxinno*threshadj) {
                     rtk->ssat[sat[j]-1].vsat[frq]=0;
                     rtk->ssat[sat[j]-1].rejc[frq]++;
@@ -1377,7 +1381,7 @@ static int ddres(rtk_t *rtk, const nav_t *nav, const obsd_t *obs, double dt, con
     
     free(Ri); free(Rj); free(im);
     free(tropu); free(tropr); free(dtdxu); free(dtdxr);
-    
+
     return nv;
 }
 /* time-interpolation of residuals (for post-processing solutions) -----------*/
@@ -1498,7 +1502,7 @@ static void restamb(rtk_t *rtk, const double *bias, int nb, double *xa)
     for (i=0;i<rtk->nx;i++) xa[i]=rtk->x [i];  /* init all fixed states to float state values */
     for (i=0;i<rtk->na;i++) xa[i]=rtk->xa[i];  /* overwrite non phase-bias states with fixed values */
     
-    for (m=0;m<5;m++) for (f=0;f<nf;f++) {
+    for (m=0;m<6;m++) for (f=0;f<nf;f++) {
         
         for (n=i=0;i<MAXSAT;i++) {
             if (!test_sys(rtk->ssat[i].sys,m)||rtk->ssat[i].fix[f]!=2) {
@@ -1526,7 +1530,7 @@ static void holdamb(rtk_t *rtk, const double *xa)
     
     v=mat(nb,1); H=zeros(nb,rtk->nx);
     
-    for (m=0;m<5;m++) for (f=0;f<nf;f++) {
+    for (m=0;m<6;m++) for (f=0;f<nf;f++) {
         
         for (n=i=0;i<MAXSAT;i++) {
             if (!test_sys(rtk->ssat[i].sys,m)||rtk->ssat[i].fix[f]!=2||
@@ -1744,7 +1748,7 @@ static int manage_amb_LAMBDA(rtk_t *rtk, double *bias, double *xa, const int *sa
 {
     int i,f,lockc[NFREQ],ar=0,excflag=0,arsats[MAXOBS]={0};
     int gps1=-1,glo1=-1,sbas1=-1,gps2,glo2,sbas2,nb,rerun,dly;
-    float ratio1,var=0,posvar=0;
+    float ratio1,posvar=0;
 
     /* calc position variance, will skip AR if too high to avoid false fix */
     for (i=0;i<3;i++) posvar+=rtk->P[i+i*rtk->nx];
@@ -1882,10 +1886,9 @@ static int relpos(rtk_t *rtk, const obsd_t *obs, int nu, int nr,
     int stat=rtk->opt.mode<=PMODE_DGPS?SOLQ_DGPS:SOLQ_FLOAT;
     int nf=opt->ionoopt==IONOOPT_IFLC?1:opt->nf;
     
-    trace(3,"relpos  : nx=%d nu=%d nr=%d\n",rtk->nx,nu,nr);
-    
     /* time diff between base and rover observations */
     dt=timediff(time,obs[nu].time);
+    trace(3,"relpos  : dt=%.3f nu=%d nr=%d\n",dt,nu,nr);
 
     /* define local matrices, n=total observations, base + rover */
     rs=mat(6,n);            /* range to satellites */
@@ -1946,13 +1949,15 @@ static int relpos(rtk_t *rtk, const obsd_t *obs, int nu, int nr,
     /* initialize Pp,xa to zero, xp to rtk->x */
     xp=mat(rtk->nx,1); Pp=zeros(rtk->nx,rtk->nx); xa=mat(rtk->nx,1);
     matcpy(xp,rtk->x,rtk->nx,1);
+    matcpy(Pp,rtk->P,rtk->nx,rtk->nx);
     
     ny=ns*nf*2+2;
     v=mat(ny,1); H=zeros(rtk->nx,ny); R=mat(ny,ny); bias=mat(rtk->nx,1);
     
     /* add 2 iterations for baseline-constraint moving-base  (else default niter=1) */
     niter=opt->niter+(opt->mode==PMODE_MOVEB&&opt->baseline[0]>0.0?2:0);
-    
+
+    trace(3,"rover:  dt=%.3f\n",dt);
     for (i=0;i<niter;i++) {
         /* calculate zero diff residuals [range - measured pseudorange] for rover (phase and code)
             output is in y[0:nu-1], only shared input with base is nav 
@@ -1967,7 +1972,6 @@ static int relpos(rtk_t *rtk, const obsd_t *obs, int nu, int nr,
                 y    = zero diff residuals (code and phase)
                 e    = line of sight unit vectors to sats
                 azel = [az, el] to sats                                   */
-        trace(3,"rover:\n");
         if (!zdres(0,obs,nu,rs,dts,var,svh,nav,xp,opt,0,y,e,azel,freq)) {
             errmsg(rtk,"rover initial position error\n");
             stat=SOLQ_NONE;
@@ -1994,17 +1998,17 @@ static int relpos(rtk_t *rtk, const obsd_t *obs, int nu, int nr,
                 K=P*H*(H'*P*H+R)^-1
                 xp=x+K*v
                 Pp=(I-K*H')*P                  */
-        matcpy(Pp,rtk->P,rtk->nx,rtk->nx);
+        trace(3,"before filter x=");tracemat(3,rtk->x,1,9,13,6);
         if ((info=filter(xp,Pp,H,v,R,rtk->nx,nv))) {
             errmsg(rtk,"filter error (info=%d)\n",info);
             stat=SOLQ_NONE;
             break;
         }
+        trace(3,"after filter x=");tracemat(3,xp,1,9,13,6);
         trace(4,"x(%d)=",i+1); tracemat(4,xp,1,NR(opt),13,4);
     }
     /* calc zero diff residuals again after kalman filter update */
-    if (stat!=SOLQ_NONE&&zdres(0,obs,nu,rs,dts,var,svh,nav,xp,opt,0,y,e,azel,
-                               freq)) {
+    if (stat!=SOLQ_NONE&&zdres(0,obs,nu,rs,dts,var,svh,nav,xp,opt,0,y,e,azel,freq)) {
         
         /* calc double diff residuals again after kalman filter update for float solution */
         nv=ddres(rtk,nav,obs,dt,xp,Pp,sat,y,e,azel,freq,iu,ir,ns,v,NULL,R,vflg);
@@ -2037,7 +2041,7 @@ static int relpos(rtk_t *rtk, const obsd_t *obs, int nu, int nr,
             if (zdres(0,obs,nu,rs,dts,var,svh,nav,xa,opt,0,y,e,azel,freq)) {
 
                 /* post-fit residuals for fixed solution (xa includes fixed phase biases, rtk->xa does not) */
-                nv=ddres(rtk,nav,obs,dt,xa,NULL,sat,y,e,azel,freq,iu,ir,ns,v,NULL,R,
+                nv=ddres(rtk,nav,obs,dt,xa,Pp,sat,y,e,azel,freq,iu,ir,ns,v,NULL,R,
                          vflg);
 
                 /* validation of fixed solution, always returns valid */
